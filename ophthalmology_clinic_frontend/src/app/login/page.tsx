@@ -9,8 +9,8 @@ import type { UserRole } from "@/lib/types";
 export default function LoginPage() {
   const router = useRouter();
   const [loginAs, setLoginAs] = useState<UserRole>("doctor");
-  const [identifier, setIdentifier] = useState("rupa.kapale@clinic.com");
-  const [password, setPassword] = useState("Doctor@12345");
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
