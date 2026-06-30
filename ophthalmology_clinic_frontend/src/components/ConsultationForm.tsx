@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
-import type { Patient, Suggestion, SuggestionFieldName, User, Visit, VisitPayload } from "@/lib/types";
+import type { ConsultationStartPayload, Patient, PatientHistory, PatientPayload, Suggestion, SuggestionFieldName, User, Visit, VisitPayload } from "@/lib/types";
 import { patientName } from "@/lib/format";
 import { ErrorState } from "./ErrorState";
 import { LoadingState } from "./LoadingState";
@@ -95,6 +95,30 @@ const emptyPayload: VisitPayload = {
   tests_prescribed: ""
 };
 
+type PatientFormState = {
+  patient_id: string;
+  first_name: string;
+  last_name: string;
+  age: string;
+  gender: string;
+  phone: string;
+  address: string;
+  occupation: string;
+  date_of_birth: string;
+};
+
+const emptyPatientForm: PatientFormState = {
+  patient_id: "",
+  first_name: "",
+  last_name: "",
+  age: "",
+  gender: "",
+  phone: "",
+  address: "",
+  occupation: "",
+  date_of_birth: ""
+};
+
 type ConsultationFormProps = {
   mode: "create" | "edit";
   visitId?: number;
@@ -107,6 +131,11 @@ export function ConsultationForm({ mode, visitId }: ConsultationFormProps) {
   const [me, setMe] = useState<User | null>(null);
   const [doctors, setDoctors] = useState<User[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [patientForm, setPatientForm] = useState<PatientFormState>(emptyPatientForm);
+  const [patientQuery, setPatientQuery] = useState("");
+  const [patientMatches, setPatientMatches] = useState<Patient[]>([]);
+  const [history, setHistory] = useState<PatientHistory | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [visit, setVisit] = useState<Visit | null>(null);
   const [payload, setPayload] = useState<VisitPayload>(emptyPayload);
   const [loading, setLoading] = useState(true);
@@ -121,15 +150,11 @@ export function ConsultationForm({ mode, visitId }: ConsultationFormProps) {
       setError("");
       try {
         const currentUser = await api.me();
-        const [patientList, existingVisit] = await Promise.all([
+        const [patientList, existingVisit, doctorList] = await Promise.all([
           api.patients(),
-          mode === "edit" && visitId ? api.visit(visitId) : Promise.resolve(null)
+          mode === "edit" && visitId ? api.visit(visitId) : Promise.resolve(null),
+          api.doctors().catch(() => [] as User[])
         ]);
-
-        let doctorList: User[] = [];
-        if (currentUser.role === "admin") {
-          doctorList = (await api.users()).filter((user) => user.role === "doctor" && user.is_active);
-        }
 
         if (!active) return;
         setMe(currentUser);
@@ -139,8 +164,18 @@ export function ConsultationForm({ mode, visitId }: ConsultationFormProps) {
 
         if (existingVisit) {
           setPayload(toPayload(existingVisit));
+          const existingPatient = existingVisit.patient ?? patientList.find((patient) => patient.id === existingVisit.patient_id) ?? null;
+          if (existingPatient) {
+            setPatientForm(patientToForm(existingPatient));
+            setPatientQuery(`${patientName(existingPatient)} ${existingPatient.phone ?? ""}`.trim());
+          }
         } else {
           const rupa = doctorList.find((doctor) => doctor.full_name.toLowerCase() === "dr. rupa kapale");
+          const initialPatient = patientList.find((patient) => patient.id === initialPatientId) ?? null;
+          if (initialPatient) {
+            setPatientForm(patientToForm(initialPatient));
+            setPatientQuery(`${patientName(initialPatient)} ${initialPatient.phone ?? ""}`.trim());
+          }
           setPayload({
             ...emptyPayload,
             patient_id: initialPatientId,
@@ -168,9 +203,66 @@ export function ConsultationForm({ mode, visitId }: ConsultationFormProps) {
     () => (me?.role === "doctor" ? me : doctors.find((doctor) => doctor.id === Number(payload.doctor_id)) ?? visit?.doctor ?? null),
     [doctors, me, payload.doctor_id, visit]
   );
+  const canEditMedical = me?.role === "admin" || me?.role === "doctor";
+
+  useEffect(() => {
+    let active = true;
+    const query = patientQuery.trim();
+    if (mode !== "create" || query.length < 2) {
+      setPatientMatches([]);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      api.searchPatients(query)
+        .then((matches) => {
+          if (active) setPatientMatches(matches);
+        })
+        .catch(() => {
+          if (active) setPatientMatches([]);
+        });
+    }, 150);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [mode, patientQuery]);
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedPatient || !canEditMedical) {
+      setHistory(null);
+      return;
+    }
+    setHistoryLoading(true);
+    api.patientHistory(selectedPatient.id)
+      .then((data) => {
+        if (active) setHistory(data);
+      })
+      .catch(() => {
+        if (active) setHistory(null);
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [canEditMedical, selectedPatient]);
 
   function update<K extends keyof VisitPayload>(key: K, value: VisitPayload[K]) {
     setPayload((current) => ({ ...current, [key]: value }));
+  }
+
+  function updatePatient<K extends keyof PatientFormState>(key: K, value: PatientFormState[K]) {
+    setPatientForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function selectPatient(patient: Patient) {
+    setPatients((current) => (current.some((item) => item.id === patient.id) ? current : [patient, ...current]));
+    setPatientForm(patientToForm(patient));
+    setPatientQuery(`${patientName(patient)} ${patient.phone ?? ""}`.trim());
+    setPatientMatches([]);
+    setPayload((current) => ({ ...current, patient_id: patient.id }));
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -178,20 +270,54 @@ export function ConsultationForm({ mode, visitId }: ConsultationFormProps) {
     setSaving(true);
     setError("");
 
-    if (!payload.patient_id || !payload.doctor_id || !payload.chief_complaint.trim()) {
-      setError("Patient, doctor and presenting complaint are required.");
+    if (!payload.doctor_id) {
+      setError("Doctor is required.");
       setSaving(false);
       return;
     }
-    if (!payload.distance_prescription_enabled && !payload.near_prescription_enabled) {
+    if (mode === "create" && !payload.patient_id && !patientForm.first_name.trim()) {
+      setError("Patient name is required.");
+      setSaving(false);
+      return;
+    }
+    if (mode === "create" && !payload.patient_id && !patientForm.age.trim()) {
+      setError("Patient age is required.");
+      setSaving(false);
+      return;
+    }
+    if (canEditMedical && !payload.chief_complaint.trim()) {
+      setError("Presenting complaint is required.");
+      setSaving(false);
+      return;
+    }
+    if (canEditMedical && !payload.distance_prescription_enabled && !payload.near_prescription_enabled) {
       setError("Select Distance Prescription, Near Prescription, or both.");
       setSaving(false);
       return;
     }
 
     try {
-      const normalized = normalizePayload(payload);
-      const saved = mode === "edit" && visitId ? await api.replaceVisit(visitId, normalized) : await api.createVisit(normalized);
+      let saved: Visit;
+      if (mode === "edit" && visitId) {
+        const normalized = normalizePayload(payload);
+        saved = await api.replaceVisit(visitId, normalized);
+      } else {
+        const started = await api.startConsultation(toConsultationStartPayload(payload, patientForm, canEditMedical));
+        if (canEditMedical) {
+          const normalized = normalizePayload({
+            ...payload,
+            patient_id: started.patient_id,
+            doctor_id: started.doctor_id
+          });
+          saved = await api.replaceVisit(started.id, normalized);
+        } else {
+          saved = started;
+        }
+      }
+      if (!canEditMedical) {
+        router.push(saved.patient_id ? `/patients/${saved.patient_id}` : "/queue");
+        return;
+      }
       router.push(`/consultations/${saved.id}`);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save consultation");
@@ -208,23 +334,18 @@ export function ConsultationForm({ mode, visitId }: ConsultationFormProps) {
       <PatientBanner patient={selectedPatient} doctor={selectedDoctor} visit={visit} />
 
       <section className="rounded border border-clinic-line bg-white p-4 shadow-soft sm:p-5">
-        <div className="grid gap-4 lg:grid-cols-3">
-          <label className="block">
-            <span className="text-sm font-semibold text-clinic-ink">Patient</span>
-            <select
-              required
-              value={payload.patient_id || ""}
-              onChange={(event) => update("patient_id", Number(event.target.value))}
-              className="mt-2 min-h-12 w-full rounded border border-clinic-line bg-white px-3 text-base"
-            >
-              <option value="">Select patient</option>
-              {patients.map((patient) => (
-                <option key={patient.id} value={patient.id}>
-                  {patientName(patient)} - {patient.patient_id}
-                </option>
-              ))}
-            </select>
-          </label>
+        <PatientIntakeSection
+          mode={mode}
+          query={patientQuery}
+          matches={patientMatches}
+          form={patientForm}
+          selectedPatient={selectedPatient}
+          onQuery={setPatientQuery}
+          onSelect={selectPatient}
+          onChange={updatePatient}
+        />
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
 
           <label className="block">
             <span className="text-sm font-semibold text-clinic-ink">Doctor</span>
@@ -247,41 +368,54 @@ export function ConsultationForm({ mode, visitId }: ConsultationFormProps) {
             )}
           </label>
 
-          <label className="block">
-            <span className="text-sm font-semibold text-clinic-ink">Next Visit</span>
-            <input
-              type="date"
-              value={payload.follow_up_date ?? ""}
-              onChange={(event) => update("follow_up_date", event.target.value || null)}
-              className="mt-2 min-h-12 w-full rounded border border-clinic-line px-3 text-base"
-            />
-          </label>
+          {canEditMedical ? (
+            <label className="block">
+              <span className="text-sm font-semibold text-clinic-ink">Next Visit</span>
+              <input
+                type="date"
+                value={payload.follow_up_date ?? ""}
+                onChange={(event) => update("follow_up_date", event.target.value || null)}
+                className="mt-2 min-h-12 w-full rounded border border-clinic-line px-3 text-base"
+              />
+            </label>
+          ) : null}
         </div>
 
         <ReadOnlyPatientDetails patient={selectedPatient} />
 
-        <label className="mt-4 block">
-          <span className="text-sm font-semibold text-clinic-ink">Presenting Complaint</span>
-          <SuggestingTextarea
-            required
-            fieldName="chief_complaint"
-            value={payload.chief_complaint}
-            onChange={(value) => update("chief_complaint", value)}
-            rows={3}
-          />
-        </label>
+        {canEditMedical ? (
+          <label className="mt-4 block">
+            <span className="text-sm font-semibold text-clinic-ink">Presenting Complaint</span>
+            <SuggestingTextarea
+              required
+              fieldName="chief_complaint"
+              value={payload.chief_complaint}
+              onChange={(value) => update("chief_complaint", value)}
+              rows={3}
+            />
+          </label>
+        ) : (
+          <p className="mt-4 rounded border border-clinic-line bg-clinic-wash px-3 py-3 text-sm text-clinic-muted">
+            Receptionist intake creates the patient record and starts today&apos;s consultation. Medical sections are completed by the doctor.
+          </p>
+        )}
       </section>
 
-      <PrescriptionSection payload={payload} update={update} />
-      <IopSection payload={payload} update={update} />
-      <ExaminationTable payload={payload} update={update} />
+      {canEditMedical ? (
+        <>
+          <PatientHistoryPanel history={history} loading={historyLoading} />
+          <PrescriptionSection payload={payload} update={update} />
+          <IopSection payload={payload} update={update} />
+          <ExaminationTable payload={payload} update={update} />
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <LargeText label="Diagnosis" fieldName="diagnosis" value={payload.diagnosis ?? ""} onChange={(value) => update("diagnosis", value)} />
-        <LargeText label="Advice" fieldName="advice" value={payload.advice ?? ""} onChange={(value) => update("advice", value)} />
-        <LargeText label="Tests Prescribed" fieldName="tests_prescribed" value={payload.tests_prescribed ?? ""} onChange={(value) => update("tests_prescribed", value)} />
-        <LargeText label="Additional Clinical Notes" fieldName="clinical_notes" value={payload.additional_notes ?? ""} onChange={(value) => update("additional_notes", value)} />
-      </section>
+          <section className="grid gap-4 lg:grid-cols-2">
+            <LargeText label="Diagnosis" fieldName="diagnosis" value={payload.diagnosis ?? ""} onChange={(value) => update("diagnosis", value)} />
+            <LargeText label="Advice" fieldName="advice" value={payload.advice ?? ""} onChange={(value) => update("advice", value)} />
+            <LargeText label="Tests Prescribed" fieldName="tests_prescribed" value={payload.tests_prescribed ?? ""} onChange={(value) => update("tests_prescribed", value)} />
+            <LargeText label="Additional Clinical Notes" fieldName="clinical_notes" value={payload.additional_notes ?? ""} onChange={(value) => update("additional_notes", value)} />
+          </section>
+        </>
+      ) : null}
 
       <div className="sticky bottom-0 -mx-4 border-t border-clinic-line bg-white/95 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded sm:border sm:shadow-soft">
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
@@ -293,11 +427,140 @@ export function ConsultationForm({ mode, visitId }: ConsultationFormProps) {
             Cancel
           </button>
           <button type="submit" disabled={saving} className="min-h-12 rounded bg-clinic-teal px-5 py-2 font-semibold text-white disabled:opacity-60">
-            {saving ? "Saving..." : mode === "edit" ? "Update Consultation" : "Save Consultation"}
+            {saving ? "Saving..." : mode === "edit" ? "Update Consultation" : canEditMedical ? "Create Consultation" : "Create Consultation Intake"}
           </button>
         </div>
       </div>
     </form>
+  );
+}
+
+function PatientIntakeSection({
+  mode,
+  query,
+  matches,
+  form,
+  selectedPatient,
+  onQuery,
+  onSelect,
+  onChange
+}: {
+  mode: "create" | "edit";
+  query: string;
+  matches: Patient[];
+  form: PatientFormState;
+  selectedPatient: Patient | null;
+  onQuery: (value: string) => void;
+  onSelect: (patient: Patient) => void;
+  onChange: <K extends keyof PatientFormState>(key: K, value: PatientFormState[K]) => void;
+}) {
+  return (
+    <div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="font-semibold text-clinic-ink">Patient Intake</h2>
+          <p className="text-sm text-clinic-muted">Search an existing patient or enter new demographics to start today&apos;s consultation.</p>
+        </div>
+        {selectedPatient ? <span className="rounded bg-clinic-mint px-3 py-1 text-sm font-semibold text-clinic-ink">Existing patient selected</span> : null}
+      </div>
+
+      {mode === "create" ? (
+        <div className="relative mt-4">
+          <label className="block">
+            <span className="text-sm font-semibold text-clinic-ink">Search by name, phone number, or patient ID</span>
+            <input
+              value={query}
+              onChange={(event) => onQuery(event.target.value)}
+              placeholder="Start typing patient name or mobile number"
+              className="mt-2 min-h-12 w-full rounded border border-clinic-line px-3 text-base"
+            />
+          </label>
+          {matches.length > 0 ? (
+            <div className="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded border border-clinic-line bg-white shadow-soft">
+              {matches.map((patient) => (
+                <button key={patient.id} type="button" onClick={() => onSelect(patient)} className="block w-full px-3 py-3 text-left hover:bg-clinic-wash">
+                  <span className="block font-semibold text-clinic-ink">{patientName(patient)}</span>
+                  <span className="block text-sm text-clinic-muted">
+                    {patient.phone ?? "No mobile"} - {patient.patient_id} - Last Visit: {patient.last_visit_at ? new Date(patient.last_visit_at).toLocaleDateString() : "No previous visit"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <SmallInput label="Patient ID" value={form.patient_id || "Auto generated"} onChange={() => undefined} disabled />
+        <SmallInput label="First Name" value={form.first_name} onChange={(value) => onChange("first_name", value)} />
+        <SmallInput label="Last Name" value={form.last_name} onChange={(value) => onChange("last_name", value)} />
+        <SmallInput label="Age" type="number" value={form.age} onChange={(value) => onChange("age", value)} />
+        <SmallInput label="Date of Birth" type="date" required={false} value={form.date_of_birth} onChange={(value) => onChange("date_of_birth", value)} />
+        <SmallSelect label="Sex" value={form.gender} onChange={(value) => onChange("gender", value)} options={["Male", "Female", "Other"]} />
+        <SmallInput label="Mobile Number" required={false} value={form.phone} onChange={(value) => onChange("phone", value)} />
+        <SmallInput label="Occupation" required={false} value={form.occupation} onChange={(value) => onChange("occupation", value)} />
+      </div>
+      <label className="mt-3 block">
+        <span className="text-sm font-semibold text-clinic-ink">Address</span>
+        <textarea value={form.address} onChange={(event) => onChange("address", event.target.value)} rows={2} className="mt-2 w-full rounded border border-clinic-line px-3 py-2 text-base" />
+      </label>
+    </div>
+  );
+}
+
+function PatientHistoryPanel({ history, loading }: { history: PatientHistory | null; loading: boolean }) {
+  if (loading) return <LoadingState label="Loading patient history" />;
+  if (!history) return null;
+  return (
+    <section className="rounded border border-clinic-line bg-white p-4 shadow-soft sm:p-5">
+      <h2 className="font-semibold text-clinic-ink">Previous History</h2>
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <HistoryList
+          title="Consultations"
+          empty="No previous consultations"
+          items={history.consultations.slice(0, 5).map((visit) => ({
+            id: visit.id,
+            primary: visit.diagnosis || visit.chief_complaint || "Consultation",
+            secondary: new Date(visit.visit_date).toLocaleDateString()
+          }))}
+        />
+        <HistoryList
+          title="Operations"
+          empty="No previous operations"
+          items={history.operations.slice(0, 5).map((operation) => ({
+            id: operation.id,
+            primary: operation.operation_type?.name ?? "Operation",
+            secondary: `${operation.operation_date} - ${operation.status.replace("_", " ")}`
+          }))}
+        />
+        <HistoryList
+          title="Follow-ups"
+          empty="No follow-up history"
+          items={history.followups.slice(0, 5).map((followup) => ({
+            id: followup.id,
+            primary: followup.notes || followup.follow_up_type.replaceAll("_", " "),
+            secondary: `${followup.follow_up_date} - ${followup.status}`
+          }))}
+        />
+      </div>
+    </section>
+  );
+}
+
+function HistoryList({ title, empty, items }: { title: string; empty: string; items: Array<{ id: number; primary: string; secondary: string }> }) {
+  return (
+    <div className="rounded border border-clinic-line">
+      <h3 className="border-b border-clinic-line bg-clinic-wash px-3 py-2 text-sm font-semibold text-clinic-ink">{title}</h3>
+      <div className="divide-y divide-clinic-line">
+        {items.map((item) => (
+          <div key={item.id} className="px-3 py-2">
+            <p className="text-sm font-semibold text-clinic-ink">{item.primary}</p>
+            <p className="text-xs text-clinic-muted">{item.secondary}</p>
+          </div>
+        ))}
+        {items.length === 0 ? <p className="px-3 py-3 text-sm text-clinic-muted">{empty}</p> : null}
+      </div>
+    </div>
   );
 }
 
@@ -719,6 +982,84 @@ function SuggestingTextarea({
       ) : null}
     </div>
   );
+}
+
+function SmallInput({
+  label,
+  value,
+  onChange,
+  type = "text",
+  required = true,
+  disabled = false
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  required?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="text-sm font-semibold text-clinic-ink">{label}</span>
+      <input
+        required={required}
+        disabled={disabled}
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-2 min-h-11 w-full rounded border border-clinic-line px-3 text-base disabled:bg-clinic-wash"
+      />
+    </label>
+  );
+}
+
+function SmallSelect({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
+  return (
+    <label className="block">
+      <span className="text-sm font-semibold text-clinic-ink">{label}</span>
+      <select required value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 min-h-11 w-full rounded border border-clinic-line bg-white px-3 text-base">
+        <option value="">Select</option>
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function patientToForm(patient: Patient): PatientFormState {
+  return {
+    patient_id: patient.patient_id,
+    first_name: patient.first_name,
+    last_name: patient.last_name,
+    age: String(patient.age),
+    gender: patient.gender,
+    phone: patient.phone ?? "",
+    address: patient.address ?? "",
+    occupation: patient.occupation ?? "",
+    date_of_birth: patient.date_of_birth ?? ""
+  };
+}
+
+function toPatientPayload(form: PatientFormState): PatientPayload {
+  return {
+    first_name: form.first_name.trim(),
+    last_name: form.last_name.trim(),
+    age: Number(form.age),
+    gender: form.gender,
+    phone: form.phone.trim() || null,
+    address: form.address.trim() || null,
+    occupation: form.occupation.trim() || null,
+    date_of_birth: form.date_of_birth || null
+  };
+}
+
+function toConsultationStartPayload(payload: VisitPayload, patientForm: PatientFormState, includeComplaint: boolean): ConsultationStartPayload {
+  return {
+    patient_id: payload.patient_id || null,
+    patient: toPatientPayload(patientForm),
+    doctor_id: payload.doctor_id || null,
+    chief_complaint: includeComplaint ? payload.chief_complaint || null : null
+  };
 }
 
 function toPayload(visit: Visit): VisitPayload {

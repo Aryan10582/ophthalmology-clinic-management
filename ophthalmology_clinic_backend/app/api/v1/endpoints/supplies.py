@@ -8,7 +8,7 @@ from app.crud.supplies import supply_crud
 from app.core.realtime import realtime_manager
 from app.models.supply import MedicalSupply, Notification, NotificationType
 from app.models.supply_batch import MedicalSupplyBatch
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.schemas.supply_batch import MedicalSupplyBatchCreate, MedicalSupplyBatchRead, MedicalSupplyConsume
 from app.schemas.supply import MedicalSupplyCreate, MedicalSupplyRead, MedicalSupplyUpdate, NotificationRead
 
@@ -17,26 +17,27 @@ staff_required = require_roles(UserRole.ADMIN, UserRole.DOCTOR, UserRole.RECEPTI
 doctor_or_admin_required = require_roles(UserRole.ADMIN, UserRole.DOCTOR)
 
 
-@router.get("", response_model=list[MedicalSupplyRead], dependencies=[Depends(staff_required)], summary="List medical supplies")
-def list_supplies(db: Session = Depends(get_db)) -> list[MedicalSupply]:
-    supplies = supply_crud.get_multi(db, limit=500)
+@router.get("", response_model=list[MedicalSupplyRead], summary="List medical supplies")
+def list_supplies(db: Session = Depends(get_db), current_user: User = Depends(staff_required)) -> list[MedicalSupply]:
+    supplies = list(db.query(MedicalSupply).filter(MedicalSupply.is_demo_data == current_user.is_demo_account).order_by(MedicalSupply.name.asc()).limit(500).all())
     for supply in supplies:
         decorate_supply(supply)
     return supplies
 
 
-@router.post("", response_model=MedicalSupplyRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(staff_required)], summary="Create medical supply")
-def create_supply(payload: MedicalSupplyCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)) -> MedicalSupply:
+@router.post("", response_model=MedicalSupplyRead, status_code=status.HTTP_201_CREATED, summary="Create medical supply")
+def create_supply(payload: MedicalSupplyCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(staff_required)) -> MedicalSupply:
+    payload = payload.model_copy(update={"is_demo_data": current_user.is_demo_account})
     supply = supply_crud.create(db, obj_in=payload)
     decorate_supply(supply)
     background_tasks.add_task(realtime_manager.broadcast, "supplies.updated", {"supply_id": supply.id})
     return supply
 
 
-@router.patch("/{supply_id}", response_model=MedicalSupplyRead, dependencies=[Depends(staff_required)], summary="Update medical supply")
-def update_supply(supply_id: int, payload: MedicalSupplyUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)) -> MedicalSupply:
+@router.patch("/{supply_id}", response_model=MedicalSupplyRead, summary="Update medical supply")
+def update_supply(supply_id: int, payload: MedicalSupplyUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(staff_required)) -> MedicalSupply:
     supply = supply_crud.get(db, id=supply_id)
-    if supply is None:
+    if supply is None or supply.is_demo_data != current_user.is_demo_account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Supply not found")
     supply = supply_crud.update(db, db_obj=supply, obj_in=payload)
     decorate_supply(supply)
@@ -45,10 +46,10 @@ def update_supply(supply_id: int, payload: MedicalSupplyUpdate, background_tasks
     return supply
 
 
-@router.post("/{supply_id}/batches", response_model=MedicalSupplyBatchRead, dependencies=[Depends(staff_required)], summary="Add inventory batch")
-def add_batch(supply_id: int, payload: MedicalSupplyBatchCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)) -> MedicalSupplyBatch:
+@router.post("/{supply_id}/batches", response_model=MedicalSupplyBatchRead, summary="Add inventory batch")
+def add_batch(supply_id: int, payload: MedicalSupplyBatchCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(staff_required)) -> MedicalSupplyBatch:
     supply = supply_crud.get(db, id=supply_id)
-    if supply is None:
+    if supply is None or supply.is_demo_data != current_user.is_demo_account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Supply not found")
     batch = MedicalSupplyBatch(
         supply_id=supply_id,
@@ -71,10 +72,10 @@ def add_batch(supply_id: int, payload: MedicalSupplyBatchCreate, background_task
     return batch
 
 
-@router.post("/{supply_id}/consume", response_model=MedicalSupplyRead, dependencies=[Depends(staff_required)], summary="Consume stock by FEFO")
-def consume_stock(supply_id: int, payload: MedicalSupplyConsume, background_tasks: BackgroundTasks, db: Session = Depends(get_db)) -> MedicalSupply:
+@router.post("/{supply_id}/consume", response_model=MedicalSupplyRead, summary="Consume stock by FEFO")
+def consume_stock(supply_id: int, payload: MedicalSupplyConsume, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(staff_required)) -> MedicalSupply:
     supply = supply_crud.get(db, id=supply_id)
-    if supply is None:
+    if supply is None or supply.is_demo_data != current_user.is_demo_account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Supply not found")
     remaining = payload.quantity
     batches = (
@@ -105,12 +106,11 @@ def consume_stock(supply_id: int, payload: MedicalSupplyConsume, background_task
 @router.delete(
     "/batches/{batch_id}",
     response_model=MedicalSupplyBatchRead,
-    dependencies=[Depends(doctor_or_admin_required)],
     summary="Delete inventory batch",
 )
-def delete_batch(batch_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)) -> MedicalSupplyBatchRead:
+def delete_batch(batch_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(doctor_or_admin_required)) -> MedicalSupplyBatchRead:
     batch = db.get(MedicalSupplyBatch, batch_id)
-    if batch is None:
+    if batch is None or batch.supply is None or batch.supply.is_demo_data != current_user.is_demo_account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Batch not found")
     supply = batch.supply
     supply_id = batch.supply_id
@@ -131,9 +131,15 @@ def delete_batch(batch_id: int, background_tasks: BackgroundTasks, db: Session =
     return deleted_batch
 
 
-@router.get("/notifications", response_model=list[NotificationRead], dependencies=[Depends(staff_required)], summary="Notifications")
-def list_notifications(db: Session = Depends(get_db)) -> list[Notification]:
-    return list(db.query(Notification).order_by(Notification.created_at.desc()).limit(100).all())
+@router.get("/notifications", response_model=list[NotificationRead], summary="Notifications")
+def list_notifications(db: Session = Depends(get_db), current_user: User = Depends(staff_required)) -> list[Notification]:
+    return list(
+        db.query(Notification)
+        .filter(Notification.is_demo_data == current_user.is_demo_account)
+        .order_by(Notification.created_at.desc())
+        .limit(100)
+        .all()
+    )
 
 
 def decorate_supply(supply: MedicalSupply) -> None:
@@ -193,8 +199,12 @@ def create_expiry_notification(db: Session, *, supply: MedicalSupply) -> None:
         message = f"{supply.name} expired on {supply.expiry_date.isoformat()}"
     else:
         message = f"{supply.name} expires in {days} days"
-    exists = db.query(Notification).filter(Notification.title == title, Notification.message == message).first()
+    exists = (
+        db.query(Notification)
+        .filter(Notification.title == title, Notification.message == message, Notification.is_demo_data == supply.is_demo_data)
+        .first()
+    )
     if exists:
         return
-    db.add(Notification(notification_type=NotificationType.LOW_STOCK, title=title, message=message))
+    db.add(Notification(notification_type=NotificationType.LOW_STOCK, title=title, message=message, is_demo_data=supply.is_demo_data))
     db.commit()

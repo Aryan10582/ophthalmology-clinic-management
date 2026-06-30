@@ -11,7 +11,9 @@ class PatientBase(BaseModel):
     gender: str = Field(..., min_length=1, max_length=30)
     phone: str | None = Field(default=None, max_length=30)
     address: str | None = Field(default=None, max_length=500)
+    occupation: str | None = Field(default=None, max_length=120)
     date_of_birth: date | None = None
+    is_demo_data: bool = False
 
 
 class PatientCreate(PatientBase):
@@ -25,6 +27,7 @@ class PatientUpdate(BaseModel):
     gender: str | None = Field(default=None, min_length=1, max_length=30)
     phone: str | None = Field(default=None, max_length=30)
     address: str | None = Field(default=None, max_length=500)
+    occupation: str | None = Field(default=None, max_length=120)
     date_of_birth: date | None = None
 
 

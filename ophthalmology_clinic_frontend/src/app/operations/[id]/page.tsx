@@ -156,6 +156,22 @@ export default function OperationDetailsPage() {
     }
   }
 
+  async function deleteOperation() {
+    if (!operation || !canEditClinical) return;
+    const confirmed = window.confirm("Delete this operation record? Reports and checklists linked to this operation will also be removed.");
+    if (!confirmed) return;
+    setSaving(true);
+    setError("");
+    try {
+      await api.deleteOperation(operation.id);
+      router.replace("/operations");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete operation");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <AppShell>
       {loading ? <LoadingState label="Loading operation" /> : null}
@@ -174,6 +190,11 @@ export default function OperationDetailsPage() {
               </span>
             </div>
             <p className="mt-3 whitespace-pre-wrap text-sm text-clinic-muted">{operation.remarks || "No remarks"}</p>
+            {canEditClinical ? (
+              <button type="button" disabled={saving} onClick={deleteOperation} className="mt-4 min-h-10 rounded border border-red-200 px-3 text-sm font-semibold text-red-700 disabled:opacity-60">
+                Delete Operation
+              </button>
+            ) : null}
           </section>
 
           <section className="rounded border border-clinic-line bg-white p-4 shadow-soft">

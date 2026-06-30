@@ -25,6 +25,7 @@ class ExpenseBase(BaseModel):
     amount: Decimal = Field(..., ge=0)
     expense_date: date
     notes: str | None = None
+    is_demo_data: bool = False
 
 
 class ExpenseCreate(ExpenseBase):

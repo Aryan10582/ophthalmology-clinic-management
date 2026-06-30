@@ -8,6 +8,7 @@ from app.schemas.user import UserCreate, UserRead, UserUpdate
 
 router = APIRouter()
 admin_required = require_roles(UserRole.ADMIN)
+staff_required = require_roles(UserRole.ADMIN, UserRole.DOCTOR, UserRole.RECEPTIONIST)
 
 
 @router.get("/me", response_model=UserRead, summary="Get current user")
@@ -15,9 +16,14 @@ def read_current_user(current_user: User = Depends(require_roles(UserRole.ADMIN,
     return current_user
 
 
+@router.get("/doctors", response_model=list[UserRead], dependencies=[Depends(staff_required)], summary="List active doctors")
+def list_doctors(db: Session = Depends(get_db)) -> list[User]:
+    return list(db.query(User).filter(User.role == UserRole.DOCTOR, User.is_active.is_(True)).order_by(User.full_name.asc()).all())
+
+
 @router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(admin_required)], summary="Create user")
 def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> User:
-    if payload.role == UserRole.DOCTOR and db.query(User.id).filter(User.role == UserRole.DOCTOR).first() is not None:
+    if payload.role == UserRole.DOCTOR and db.query(User.id).filter(User.role == UserRole.DOCTOR, User.is_demo_account.is_(False)).first() is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A doctor account already exists")
     if payload.username and user_crud.get_by_username(db, username=payload.username):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already registered")
@@ -44,7 +50,7 @@ def update_user(user_id: int, payload: UserUpdate, db: Session = Depends(get_db)
     user = user_crud.get(db, id=user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    if payload.role == UserRole.DOCTOR and user.role != UserRole.DOCTOR and db.query(User.id).filter(User.role == UserRole.DOCTOR).first() is not None:
+    if payload.role == UserRole.DOCTOR and user.role != UserRole.DOCTOR and db.query(User.id).filter(User.role == UserRole.DOCTOR, User.is_demo_account.is_(False)).first() is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A doctor account already exists")
     if payload.username:
         existing_username = user_crud.get_by_username(db, username=payload.username)

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, login } from "@/lib/api";
+import { api, enterDemoClinic, login } from "@/lib/api";
 import { ErrorState } from "@/components/ErrorState";
 import type { UserRole } from "@/lib/types";
 
@@ -12,6 +12,7 @@ export default function LoginPage() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -33,6 +34,19 @@ export default function LoginPage() {
       setError(loginError instanceof Error ? loginError.message : "Unable to sign in");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function exploreDemo() {
+    setDemoLoading(true);
+    setError("");
+    try {
+      await enterDemoClinic();
+      router.replace("/dashboard");
+    } catch (demoError) {
+      setError(demoError instanceof Error ? demoError.message : "Unable to enter demo clinic");
+    } finally {
+      setDemoLoading(false);
     }
   }
 
@@ -92,6 +106,19 @@ export default function LoginPage() {
             {loading ? "Signing in..." : "Sign In"}
           </button>
         </form>
+        <div className="my-5 flex items-center gap-3">
+          <div className="h-px flex-1 bg-clinic-line" />
+          <span className="text-xs font-semibold uppercase tracking-wide text-clinic-muted">or</span>
+          <div className="h-px flex-1 bg-clinic-line" />
+        </div>
+        <button
+          type="button"
+          onClick={exploreDemo}
+          disabled={demoLoading}
+          className="min-h-12 w-full rounded border border-clinic-teal bg-white px-4 py-2 font-semibold text-clinic-teal disabled:opacity-60"
+        >
+          {demoLoading ? "Opening Demo Clinic..." : "Explore Demo Clinic"}
+        </button>
       </section>
     </main>
   );

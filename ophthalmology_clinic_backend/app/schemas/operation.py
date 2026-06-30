@@ -12,6 +12,7 @@ class OperationTypeBase(BaseModel):
     name: str = Field(..., min_length=2, max_length=120)
     price: float = Field(default=0, ge=0)
     is_active: bool = True
+    is_demo_data: bool = False
 
 
 class OperationTypeCreate(OperationTypeBase):
@@ -56,6 +57,7 @@ class OperationTestRead(OperationTestBase):
 
 class OperationCreate(BaseModel):
     patient_id: int
+    visit_id: int | None = None
     doctor_id: int
     operation_type_id: int
     operation_date: date
@@ -75,6 +77,7 @@ class OperationUpdate(BaseModel):
 
 class OperationRead(BaseModel):
     id: int
+    visit_id: int
     patient_id: int
     doctor_id: int
     operation_type_id: int

@@ -18,6 +18,7 @@ export default function PatientDetailsPage() {
   const [patient, setPatient] = useState<Patient | null>(null);
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -50,6 +51,22 @@ export default function PatientDetailsPage() {
     };
   }, [patientId, router]);
 
+  async function deletePatient() {
+    if (!patient || me?.role === "receptionist") return;
+    const confirmed = window.confirm("Delete this patient and all linked clinic records?");
+    if (!confirmed) return;
+    setSaving(true);
+    setError("");
+    try {
+      await api.deletePatient(patient.id);
+      router.replace("/patients");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete patient");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <AppShell>
       {loading ? <LoadingState label="Loading patient" /> : null}
@@ -62,11 +79,16 @@ export default function PatientDetailsPage() {
                 <h1 className="text-2xl font-semibold text-clinic-ink">{patientName(patient)}</h1>
                 <p className="text-sm text-clinic-muted">{patient.patient_id}</p>
               </div>
-              {me?.role !== "receptionist" ? (
+              <div className="flex flex-wrap gap-2">
                 <Link href={`/consultations/new?patientId=${patient.id}`} className="min-h-11 rounded bg-clinic-teal px-4 py-2 text-center text-sm font-semibold text-white">
                   New Consultation
                 </Link>
-              ) : null}
+                {me?.role !== "receptionist" ? (
+                  <button type="button" disabled={saving} onClick={deletePatient} className="min-h-11 rounded border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 disabled:opacity-60">
+                    Delete Patient
+                  </button>
+                ) : null}
+              </div>
             </div>
             <dl className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <Info label="Age" value={patient.age} />

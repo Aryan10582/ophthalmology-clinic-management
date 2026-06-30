@@ -64,9 +64,31 @@ export type Patient = {
   gender: string;
   phone?: string | null;
   address?: string | null;
+  occupation?: string | null;
   date_of_birth?: string | null;
+  is_demo_data?: boolean;
   created_at: string;
   last_visit_at?: string | null;
+};
+
+export type PatientPayload = {
+  patient_id?: string | null;
+  first_name: string;
+  last_name: string;
+  age: number;
+  gender: string;
+  phone?: string | null;
+  address?: string | null;
+  occupation?: string | null;
+  date_of_birth?: string | null;
+  is_demo_data?: boolean;
+};
+
+export type ConsultationStartPayload = {
+  patient_id?: number | null;
+  patient?: PatientPayload | null;
+  doctor_id?: number | null;
+  chief_complaint?: string | null;
 };
 
 export type PaymentStatus = "not_paid" | "paid";
@@ -154,6 +176,12 @@ export type Visit = VisitPayload & {
   doctor?: User | null;
 };
 
+export type PatientHistory = {
+  consultations: Visit[];
+  operations: Operation[];
+  followups: FollowUp[];
+};
+
 export type TokenResponse = {
   access_token: string;
   refresh_token: string;
@@ -203,6 +231,7 @@ export type OperationType = {
   name: string;
   price: string | number;
   is_active: boolean;
+  is_demo_data?: boolean;
   created_at: string;
 };
 
@@ -229,6 +258,7 @@ export type OperationTest = {
 
 export type OperationPayload = {
   patient_id: number;
+  visit_id?: number | null;
   doctor_id: number;
   operation_type_id: number;
   operation_date: string;
@@ -280,6 +310,7 @@ export type PaymentSetting = {
   id: number;
   setting_key: string;
   amount: string | number;
+  is_demo_data?: boolean;
   updated_at: string;
 };
 
@@ -301,6 +332,7 @@ export type MedicalSupply = {
   minimum_stock: number;
   expiry_date?: string | null;
   notes?: string | null;
+  is_demo_data?: boolean;
   updated_at: string;
   is_low_stock: boolean;
   expiry_status: "not_tracked" | "safe" | "expiring_soon" | "expired";
@@ -328,6 +360,7 @@ export type MedicalSupplyBatchPayload = {
   expiry_date: string;
   purchase_date: string;
   notes?: string | null;
+  is_demo_data?: boolean;
 };
 
 export type MedicalSupplyPayload = {
@@ -346,6 +379,7 @@ export type Notification = {
   title: string;
   message: string;
   is_read: boolean;
+  is_demo_data?: boolean;
   created_at: string;
 };
 
@@ -368,6 +402,7 @@ export type Expense = {
   amount: string | number;
   expense_date: string;
   notes?: string | null;
+  is_demo_data?: boolean;
   created_at: string;
 };
 

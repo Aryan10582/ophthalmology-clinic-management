@@ -25,20 +25,32 @@ def _money(value) -> Decimal:
     return Decimal(value or 0)
 
 
-def _period_breakdown(db: Session, *, start: date, end: date) -> MoneyBreakdown:
+def _period_breakdown(db: Session, *, start: date, end: date, is_demo_data: bool = False) -> MoneyBreakdown:
     consultation_revenue = _money(
         db.query(func.coalesce(func.sum(Visit.consultation_fee), 0))
-        .filter(func.date(Visit.completed_at) >= start, func.date(Visit.completed_at) <= end, Visit.payment_status == PaymentStatus.PAID)
+        .join(Patient)
+        .filter(
+            func.date(Visit.completed_at) >= start,
+            func.date(Visit.completed_at) <= end,
+            Visit.payment_status == PaymentStatus.PAID,
+            Patient.is_demo_data == is_demo_data,
+        )
         .scalar()
     )
     operation_revenue = _money(
         db.query(func.coalesce(func.sum(Operation.operation_charge), 0))
-        .filter(Operation.operation_date >= start, Operation.operation_date <= end, Operation.payment_status == PaymentStatus.PAID)
+        .join(Patient)
+        .filter(
+            Operation.operation_date >= start,
+            Operation.operation_date <= end,
+            Operation.payment_status == PaymentStatus.PAID,
+            Patient.is_demo_data == is_demo_data,
+        )
         .scalar()
     )
     expenses = _money(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.expense_date >= start, Expense.expense_date <= end)
+        .filter(Expense.expense_date >= start, Expense.expense_date <= end, Expense.is_demo_data == is_demo_data)
         .scalar()
     )
     total_revenue = consultation_revenue + operation_revenue
@@ -51,41 +63,48 @@ def _period_breakdown(db: Session, *, start: date, end: date) -> MoneyBreakdown:
     )
 
 
-def analytics_summary(db: Session, *, today: date) -> AnalyticsSummary:
+def analytics_summary(db: Session, *, today: date, is_demo_data: bool = False) -> AnalyticsSummary:
     week_start = today - timedelta(days=today.weekday())
     month_start = today.replace(day=1)
     year_start = today.replace(month=1, day=1)
     trailing_year_start = today - timedelta(days=365)
 
     finance = AnalyticsMetricSet(
-        today=_period_breakdown(db, start=today, end=today),
-        week=_period_breakdown(db, start=week_start, end=today),
-        month=_period_breakdown(db, start=month_start, end=today),
-        year=_period_breakdown(db, start=year_start, end=today),
+        today=_period_breakdown(db, start=today, end=today, is_demo_data=is_demo_data),
+        week=_period_breakdown(db, start=week_start, end=today, is_demo_data=is_demo_data),
+        month=_period_breakdown(db, start=month_start, end=today, is_demo_data=is_demo_data),
+        year=_period_breakdown(db, start=year_start, end=today, is_demo_data=is_demo_data),
     )
 
-    daily_consultations = db.query(Visit).filter(func.date(Visit.completed_at) == today).count()
-    weekly_consultations = db.query(Visit).filter(func.date(Visit.completed_at) >= week_start, func.date(Visit.completed_at) <= today).count()
-    monthly_consultations = db.query(Visit).filter(func.date(Visit.completed_at) >= month_start, func.date(Visit.completed_at) <= today).count()
-    total_consultations = db.query(Visit).count()
+    scoped_visits = db.query(Visit).join(Patient).filter(Patient.is_demo_data == is_demo_data)
+    scoped_operations = db.query(Operation).join(Patient).filter(Patient.is_demo_data == is_demo_data)
 
-    new_patients = db.query(Patient).filter(func.date(Patient.created_at) >= month_start, func.date(Patient.created_at) <= today).count()
+    daily_consultations = scoped_visits.filter(func.date(Visit.completed_at) == today).count()
+    weekly_consultations = scoped_visits.filter(func.date(Visit.completed_at) >= week_start, func.date(Visit.completed_at) <= today).count()
+    monthly_consultations = scoped_visits.filter(func.date(Visit.completed_at) >= month_start, func.date(Visit.completed_at) <= today).count()
+    total_consultations = scoped_visits.count()
+
+    new_patients = db.query(Patient).filter(Patient.is_demo_data == is_demo_data, func.date(Patient.created_at) >= month_start, func.date(Patient.created_at) <= today).count()
     returning_patients = (
         db.query(Visit.patient_id)
+        .join(Patient)
         .filter(func.date(Visit.completed_at) >= month_start, func.date(Visit.completed_at) <= today)
+        .filter(Patient.is_demo_data == is_demo_data)
         .group_by(Visit.patient_id)
         .having(func.count(Visit.id) > 1)
         .count()
     )
     consultation_days = max((today - trailing_year_start).days, 1)
-    consultations_year = db.query(Visit).filter(func.date(Visit.completed_at) >= trailing_year_start, func.date(Visit.completed_at) <= today).count()
-    operations_year = db.query(Operation).filter(Operation.operation_date >= trailing_year_start, Operation.operation_date <= today).count()
+    consultations_year = scoped_visits.filter(func.date(Visit.completed_at) >= trailing_year_start, func.date(Visit.completed_at) <= today).count()
+    operations_year = scoped_operations.filter(Operation.operation_date >= trailing_year_start, Operation.operation_date <= today).count()
 
-    total_operations = db.query(Operation).filter(Operation.operation_date >= trailing_year_start, Operation.operation_date <= today).count()
+    total_operations = scoped_operations.filter(Operation.operation_date >= trailing_year_start, Operation.operation_date <= today).count()
     operation_rows = (
         db.query(OperationType.name, func.count(Operation.id))
         .join(OperationType, Operation.operation_type_id == OperationType.id)
+        .join(Patient, Operation.patient_id == Patient.id)
         .filter(Operation.operation_date >= trailing_year_start, Operation.operation_date <= today)
+        .filter(Patient.is_demo_data == is_demo_data)
         .group_by(OperationType.name)
         .order_by(func.count(Operation.id).desc())
         .all()
@@ -100,12 +119,12 @@ def analytics_summary(db: Session, *, today: date) -> AnalyticsSummary:
         month = _add_months(today.replace(day=1), -offset)
         next_month = _add_months(month, 1)
         month_end = next_month - timedelta(days=1)
-        breakdown = _period_breakdown(db, start=month, end=month_end)
+        breakdown = _period_breakdown(db, start=month, end=month_end, is_demo_data=is_demo_data)
         monthly_trends.append(
             MonthlyTrendPoint(
                 month=month.strftime("%Y-%m"),
-                consultations=db.query(Visit).filter(func.date(Visit.completed_at) >= month, func.date(Visit.completed_at) <= month_end).count(),
-                operations=db.query(Operation).filter(Operation.operation_date >= month, Operation.operation_date <= month_end).count(),
+                consultations=scoped_visits.filter(func.date(Visit.completed_at) >= month, func.date(Visit.completed_at) <= month_end).count(),
+                operations=scoped_operations.filter(Operation.operation_date >= month, Operation.operation_date <= month_end).count(),
                 consultation_revenue=breakdown.consultation_revenue,
                 operation_revenue=breakdown.operation_revenue,
                 total_revenue=breakdown.total_revenue,
@@ -118,7 +137,7 @@ def analytics_summary(db: Session, *, today: date) -> AnalyticsSummary:
         ExpenseCategoryAnalytics(category=category, amount=_money(amount))
         for category, amount in (
             db.query(Expense.category, func.coalesce(func.sum(Expense.amount), 0))
-            .filter(Expense.expense_date >= year_start, Expense.expense_date <= today)
+            .filter(Expense.expense_date >= year_start, Expense.expense_date <= today, Expense.is_demo_data == is_demo_data)
             .group_by(Expense.category)
             .order_by(func.sum(Expense.amount).desc())
             .all()

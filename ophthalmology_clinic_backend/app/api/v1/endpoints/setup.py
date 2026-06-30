@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from pathlib import Path
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -157,21 +158,39 @@ def doctor_exists(db: Session) -> bool:
 
 
 def clear_demo_clinic_data(db: Session) -> None:
-    db.query(OperationTestReport).delete(synchronize_session=False)
-    db.query(OperationTest).delete(synchronize_session=False)
-    db.query(FollowUp).delete(synchronize_session=False)
-    db.query(QueueEntry).delete(synchronize_session=False)
-    db.query(Operation).delete(synchronize_session=False)
-    db.query(Visit).delete(synchronize_session=False)
-    db.query(Patient).delete(synchronize_session=False)
-    db.query(MedicalSupplyBatch).delete(synchronize_session=False)
-    db.query(MedicalSupply).delete(synchronize_session=False)
-    db.query(Notification).delete(synchronize_session=False)
-    db.query(Expense).delete(synchronize_session=False)
-    db.query(ConsultationSuggestion).delete(synchronize_session=False)
-    db.query(PrescriptionTemplate).delete(synchronize_session=False)
-    db.query(OperationType).delete(synchronize_session=False)
-    db.query(PaymentSetting).delete(synchronize_session=False)
+    demo_patient_ids = [row[0] for row in db.query(Patient.id).filter(Patient.is_demo_data.is_(True)).all()]
+    demo_user_ids = [row[0] for row in db.query(User.id).filter(User.is_demo_account.is_(True)).all()]
+    demo_supply_ids = [row[0] for row in db.query(MedicalSupply.id).filter(MedicalSupply.is_demo_data.is_(True)).all()]
+    demo_operation_type_ids = [row[0] for row in db.query(OperationType.id).filter(OperationType.is_demo_data.is_(True)).all()]
+    demo_operation_ids = [row[0] for row in db.query(Operation.id).filter(Operation.patient_id.in_(demo_patient_ids)).all()] if demo_patient_ids else []
+    demo_test_ids = [row[0] for row in db.query(OperationTest.id).filter(OperationTest.operation_id.in_(demo_operation_ids)).all()] if demo_operation_ids else []
+
+    if demo_test_ids:
+        for report in db.query(OperationTestReport).filter(OperationTestReport.operation_test_id.in_(demo_test_ids)).all():
+            path = Path(report.file_path)
+            if path.exists():
+                path.unlink()
+        db.query(OperationTestReport).filter(OperationTestReport.operation_test_id.in_(demo_test_ids)).delete(synchronize_session=False)
+    if demo_operation_ids:
+        db.query(OperationTest).filter(OperationTest.operation_id.in_(demo_operation_ids)).delete(synchronize_session=False)
+        db.query(FollowUp).filter(FollowUp.operation_id.in_(demo_operation_ids)).delete(synchronize_session=False)
+        db.query(Operation).filter(Operation.id.in_(demo_operation_ids)).delete(synchronize_session=False)
+    if demo_patient_ids:
+        db.query(FollowUp).filter(FollowUp.patient_id.in_(demo_patient_ids)).delete(synchronize_session=False)
+        db.query(QueueEntry).filter(QueueEntry.patient_id.in_(demo_patient_ids)).delete(synchronize_session=False)
+        db.query(Visit).filter(Visit.patient_id.in_(demo_patient_ids)).delete(synchronize_session=False)
+        db.query(Patient).filter(Patient.id.in_(demo_patient_ids)).delete(synchronize_session=False)
+    if demo_supply_ids:
+        db.query(MedicalSupplyBatch).filter(MedicalSupplyBatch.supply_id.in_(demo_supply_ids)).delete(synchronize_session=False)
+        db.query(MedicalSupply).filter(MedicalSupply.id.in_(demo_supply_ids)).delete(synchronize_session=False)
+    db.query(Notification).filter(Notification.is_demo_data.is_(True)).delete(synchronize_session=False)
+    db.query(Expense).filter(Expense.is_demo_data.is_(True)).delete(synchronize_session=False)
+    if demo_user_ids:
+        db.query(ConsultationSuggestion).filter(ConsultationSuggestion.doctor_id.in_(demo_user_ids)).delete(synchronize_session=False)
+        db.query(PrescriptionTemplate).filter(PrescriptionTemplate.doctor_id.in_(demo_user_ids)).delete(synchronize_session=False)
+    if demo_operation_type_ids:
+        db.query(OperationType).filter(OperationType.id.in_(demo_operation_type_ids)).delete(synchronize_session=False)
+    db.query(PaymentSetting).filter(PaymentSetting.is_demo_data.is_(True)).delete(synchronize_session=False)
     db.query(User).filter(User.is_demo_account.is_(True)).delete(synchronize_session=False)
 
 

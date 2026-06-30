@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.payment import PaymentMethod, PaymentStatus
 from app.models.user import UserRole
+from app.schemas.patient import PatientCreate
 
 
 class VisitPatientRead(BaseModel):
@@ -15,6 +16,7 @@ class VisitPatientRead(BaseModel):
     gender: str
     phone: str | None = None
     address: str | None = None
+    occupation: str | None = None
     date_of_birth: date | None = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -127,6 +129,13 @@ class VisitBase(BaseModel):
 
 class VisitCreate(VisitBase):
     pass
+
+
+class ConsultationStartCreate(BaseModel):
+    patient_id: int | None = None
+    patient: PatientCreate | None = None
+    doctor_id: int | None = None
+    chief_complaint: str | None = Field(default=None, max_length=1000)
 
 
 class VisitUpdate(BaseModel):

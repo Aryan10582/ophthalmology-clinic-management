@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Integer, String, func
+from sqlalchemy import Boolean, Date, DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -17,7 +17,9 @@ class Patient(Base):
     gender: Mapped[str] = mapped_column(String(30), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    occupation: Mapped[str | None] = mapped_column(String(120), nullable=True)
     date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)
+    is_demo_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_visit_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

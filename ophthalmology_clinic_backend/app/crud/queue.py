@@ -55,17 +55,18 @@ class CRUDQueue(CRUDBase[QueueEntry, QueueEntryCreate, QueueEntryUpdate]):
             .first()
         )
 
-    def find_patient_match(self, db: Session, *, payload: QueueEntryCreate) -> Patient | None:
+    def find_patient_match(self, db: Session, *, payload: QueueEntryCreate, is_demo_data: bool = False) -> Patient | None:
         if payload.patient_id:
-            return db.get(Patient, payload.patient_id)
+            patient = db.get(Patient, payload.patient_id)
+            return patient if patient is not None and patient.is_demo_data == is_demo_data else None
         if payload.phone:
-            match = db.query(Patient).filter(Patient.phone == payload.phone).first()
+            match = db.query(Patient).filter(Patient.phone == payload.phone, Patient.is_demo_data == is_demo_data).first()
             if match:
                 return match
         if payload.first_name and payload.last_name:
             return (
                 db.query(Patient)
-                .filter(Patient.first_name.ilike(payload.first_name), Patient.last_name.ilike(payload.last_name))
+                .filter(Patient.first_name.ilike(payload.first_name), Patient.last_name.ilike(payload.last_name), Patient.is_demo_data == is_demo_data)
                 .first()
             )
         return None
@@ -77,9 +78,10 @@ class CRUDQueue(CRUDBase[QueueEntry, QueueEntryCreate, QueueEntryUpdate]):
         payload: QueueEntryCreate,
         receptionist_id: int | None,
         patient_create,
+        is_demo_data: bool = False,
     ) -> QueueEntry:
         queue_date = payload.queue_date or date.today()
-        patient = self.find_patient_match(db, payload=payload)
+        patient = self.find_patient_match(db, payload=payload, is_demo_data=is_demo_data)
         if patient is None:
             if not all([payload.first_name, payload.last_name, payload.age is not None, payload.gender]):
                 raise ValueError("New patient requires first_name, last_name, age and gender")
@@ -92,6 +94,7 @@ class CRUDQueue(CRUDBase[QueueEntry, QueueEntryCreate, QueueEntryUpdate]):
                     gender=payload.gender,
                     phone=payload.phone,
                     address=payload.address,
+                    is_demo_data=is_demo_data,
                 ),
             )
 

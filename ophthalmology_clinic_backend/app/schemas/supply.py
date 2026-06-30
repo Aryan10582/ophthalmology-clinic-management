@@ -14,6 +14,7 @@ class MedicalSupplyCreate(BaseModel):
     minimum_stock: int = Field(..., ge=0)
     expiry_date: date | None = None
     notes: str | None = None
+    is_demo_data: bool = False
 
 
 class MedicalSupplyUpdate(BaseModel):
@@ -43,6 +44,7 @@ class NotificationRead(BaseModel):
     title: str
     message: str
     is_read: bool
+    is_demo_data: bool = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

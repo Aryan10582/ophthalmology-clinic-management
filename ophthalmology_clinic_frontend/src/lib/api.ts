@@ -15,6 +15,8 @@ import type {
   OperationTest,
   OperationTestReport,
   OperationType,
+  PatientHistory,
+  ConsultationStartPayload,
   PaymentSetting,
   PaymentUpdate,
   Patient,
@@ -38,6 +40,7 @@ import type {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 const ACCESS_TOKEN_KEY = "clinic_access_token";
 const REFRESH_TOKEN_KEY = "clinic_refresh_token";
+const AUTH_CHANGED_EVENT = "clinic-auth-changed";
 
 export class ApiError extends Error {
   status: number;
@@ -50,17 +53,33 @@ export class ApiError extends Error {
 
 export function getAccessToken() {
   if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(ACCESS_TOKEN_KEY);
+  return window.sessionStorage.getItem(ACCESS_TOKEN_KEY);
 }
 
 export function setTokens(tokens: TokenResponse) {
-  window.localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token);
-  window.localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token);
+  clearTokens({ notify: false });
+  window.sessionStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token);
+  window.sessionStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token);
+  notifyAuthChanged();
 }
 
-export function clearTokens() {
+export function clearTokens(options: { notify?: boolean } = {}) {
+  window.sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+  window.sessionStorage.removeItem(REFRESH_TOKEN_KEY);
   window.localStorage.removeItem(ACCESS_TOKEN_KEY);
   window.localStorage.removeItem(REFRESH_TOKEN_KEY);
+  if (options.notify !== false) notifyAuthChanged();
+}
+
+export function subscribeAuthChanges(onChange: () => void) {
+  if (typeof window === "undefined") return () => undefined;
+  window.addEventListener(AUTH_CHANGED_EVENT, onChange);
+  return () => window.removeEventListener(AUTH_CHANGED_EVENT, onChange);
+}
+
+function notifyAuthChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
 }
 
 export function subscribeRealtime(onEvent: (event: RealtimeEvent) => void) {
@@ -90,10 +109,14 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
-    headers
+    headers,
+    cache: "no-store"
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      clearTokens();
+    }
     let message = "Request failed";
     try {
       const body = await response.json();
@@ -111,6 +134,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export async function login(identifier: string, password: string, loginAs?: UserRole) {
+  clearTokens({ notify: false });
   const body = new URLSearchParams();
   body.set("username", identifier);
   body.set("password", password);
@@ -119,7 +143,8 @@ export async function login(identifier: string, password: string, loginAs?: User
   const tokens = await fetch(`${API_BASE_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body
+    body,
+    cache: "no-store"
   }).then(async (response) => {
     if (!response.ok) {
       let message = "Invalid email or password";
@@ -138,7 +163,40 @@ export async function login(identifier: string, password: string, loginAs?: User
   return tokens;
 }
 
+export async function enterDemoClinic() {
+  clearTokens({ notify: false });
+  const tokens = await fetch(`${API_BASE_URL}/auth/demo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store"
+  }).then(async (response) => {
+    if (!response.ok) {
+      let message = "Demo clinic is unavailable";
+      try {
+        const body = await response.json();
+        message = typeof body.detail === "string" ? body.detail : message;
+      } catch {
+        message = response.statusText || message;
+      }
+      throw new ApiError(message, response.status);
+    }
+    return response.json() as Promise<TokenResponse>;
+  });
+
+  setTokens(tokens);
+  return tokens;
+}
+
+export async function resetDemoClinic() {
+  try {
+    await apiFetch<{ status: string }>("/auth/demo/reset", { method: "POST" });
+  } catch {
+    // Demo reset is best-effort on logout/timeout; the next demo entry also resets.
+  }
+}
+
 export const api = {
+  doctors: () => apiFetch<User[]>("/users/doctors"),
   setupStatus: () => apiFetch<SetupStatus>("/setup/status"),
   completeSetup: (payload: ClinicSetupPayload) =>
     apiFetch<ClinicSetupResult>("/setup", {
@@ -163,12 +221,23 @@ export const api = {
   me: () => apiFetch<User>("/users/me"),
   users: () => apiFetch<User[]>("/users"),
   patients: () => apiFetch<Patient[]>("/patients"),
+  searchPatients: (query: string) => apiFetch<Patient[]>(`/patients/search?q=${encodeURIComponent(query)}`),
   patient: (id: number) => apiFetch<Patient>(`/patients/${id}`),
+  deletePatient: (id: number) =>
+    apiFetch<Patient>(`/patients/${id}`, {
+      method: "DELETE"
+    }),
+  patientHistory: (id: number) => apiFetch<PatientHistory>(`/patients/${id}/history`),
   visits: () => apiFetch<Visit[]>("/visits"),
   patientVisits: (patientId: number) => apiFetch<Visit[]>(`/visits/patient/${patientId}`),
   visit: (id: number) => apiFetch<Visit>(`/visits/${id}`),
   createVisit: (payload: VisitPayload) =>
     apiFetch<Visit>("/visits", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  startConsultation: (payload: ConsultationStartPayload) =>
+    apiFetch<Visit>("/visits/start", {
       method: "POST",
       body: JSON.stringify(payload)
     }),
@@ -193,6 +262,7 @@ export const api = {
     }),
   queueToday: () => apiFetch<QueueEntry[]>("/queue/today"),
   completedQueueToday: () => apiFetch<QueueEntry[]>("/queue/completed-today"),
+  queueTodayIncome: () => apiFetch<TodayIncome>("/queue/today-income"),
   addQueueEntry: (payload: QueueEntryPayload) =>
     apiFetch<QueueEntry>("/queue", {
       method: "POST",
@@ -222,6 +292,10 @@ export const api = {
     apiFetch<Operation>("/operations", {
       method: "POST",
       body: JSON.stringify(payload)
+    }),
+  deleteOperation: (id: number) =>
+    apiFetch<Operation>(`/operations/${id}`, {
+      method: "DELETE"
     }),
   updateOperationTest: (id: number, payload: Partial<OperationTest>) =>
     apiFetch<OperationTest>(`/operations/tests/${id}`, {

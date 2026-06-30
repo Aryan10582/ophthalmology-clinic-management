@@ -43,7 +43,7 @@ export default function QueuePage() {
         api.patients(),
         api.queueToday(),
         api.completedQueueToday(),
-        currentUser.role === "receptionist" ? Promise.resolve(null) : api.todayIncome().catch(() => null)
+        api.queueTodayIncome().catch(() => null)
       ]);
       setMe(currentUser);
       setPatients(patientList);
@@ -156,7 +156,7 @@ export default function QueuePage() {
                         <div>
                           <p className="font-semibold text-clinic-ink">{index + 1}. {patientName(entry.patient)}</p>
                           <p className="text-sm text-clinic-muted">
-                            Token #{entry.id} - {entry.patient?.patient_id} - {formatDateTime(entry.completed_at)}
+                            Consultation #{entry.completed_visit_id ?? entry.id} - {entry.patient?.patient_id} - {formatDateTime(entry.completed_at)}
                           </p>
                         </div>
                         <span className={`rounded px-3 py-1 text-sm font-semibold ${entry.payment_status === "paid" ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-900"}`}>

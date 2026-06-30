@@ -4,25 +4,34 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_roles
-from app.crud.followups import followup_crud
-from app.crud.operations import operation_crud
-from app.models.followup import FollowUpType
-from app.models.user import UserRole
+from app.models.followup import FollowUp, FollowUpStatus, FollowUpType
+from app.models.operation import Operation
+from app.models.patient import Patient
+from app.models.user import User, UserRole
 from app.schemas.followup import CalendarEvent
 
 router = APIRouter()
 staff_required = require_roles(UserRole.ADMIN, UserRole.DOCTOR, UserRole.RECEPTIONIST)
 
 
-@router.get("/events", response_model=list[CalendarEvent], dependencies=[Depends(staff_required)], summary="Calendar events")
+@router.get("/events", response_model=list[CalendarEvent], summary="Calendar events")
 def calendar_events(
     filter: str = Query(default="all", pattern="^(all|operations|followups)$"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(staff_required),
 ) -> list[CalendarEvent]:
     events: list[CalendarEvent] = []
 
     if filter in {"all", "operations"}:
-        for operation in operation_crud.get_multi(db, limit=500):
+        operations = (
+            db.query(Operation)
+            .join(Patient)
+            .filter(Patient.is_demo_data == current_user.is_demo_account)
+            .order_by(Operation.operation_date.asc(), Operation.id.asc())
+            .limit(500)
+            .all()
+        )
+        for operation in operations:
             events.append(
                 CalendarEvent(
                     id=f"operation-{operation.id}",
@@ -36,7 +45,15 @@ def calendar_events(
             )
 
     if filter in {"all", "followups"}:
-        for followup in followup_crud.get_upcoming(db):
+        followups = (
+            db.query(FollowUp)
+            .join(Patient)
+            .filter(Patient.is_demo_data == current_user.is_demo_account, FollowUp.status == FollowUpStatus.SCHEDULED)
+            .order_by(FollowUp.follow_up_date.asc(), FollowUp.id.asc())
+            .limit(500)
+            .all()
+        )
+        for followup in followups:
             color = "blue"
             category = "normal_followup"
             if followup.follow_up_type == FollowUpType.OPERATION_NEXT_DAY:

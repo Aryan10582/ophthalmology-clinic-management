@@ -24,12 +24,17 @@ def create_low_stock_notification(db: Session, *, supply: MedicalSupply) -> None
     message = f"{supply.name} remaining: {supply.current_stock} {supply.unit}. Minimum required: {supply.minimum_stock}."
     existing = (
         db.query(Notification)
-        .filter(Notification.notification_type == NotificationType.LOW_STOCK, Notification.title == title, Notification.message == message)
+        .filter(
+            Notification.notification_type == NotificationType.LOW_STOCK,
+            Notification.title == title,
+            Notification.message == message,
+            Notification.is_demo_data == supply.is_demo_data,
+        )
         .first()
     )
     if existing:
         return
-    db.add(Notification(notification_type=NotificationType.LOW_STOCK, title=title, message=message))
+    db.add(Notification(notification_type=NotificationType.LOW_STOCK, title=title, message=message, is_demo_data=supply.is_demo_data))
     db.commit()
 
 

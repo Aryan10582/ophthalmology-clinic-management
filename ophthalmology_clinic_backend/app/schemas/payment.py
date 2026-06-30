@@ -21,6 +21,7 @@ class PaymentSettingRead(BaseModel):
     id: int
     setting_key: str
     amount: Decimal
+    is_demo_data: bool = False
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
