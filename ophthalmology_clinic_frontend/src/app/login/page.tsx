@@ -1,25 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { login } from "@/lib/api";
+import { api, login } from "@/lib/api";
 import { ErrorState } from "@/components/ErrorState";
 import type { UserRole } from "@/lib/types";
 
 export default function LoginPage() {
   const router = useRouter();
   const [loginAs, setLoginAs] = useState<UserRole>("doctor");
-  const [email, setEmail] = useState("rupa.kapale@clinic.com");
+  const [identifier, setIdentifier] = useState("rupa.kapale@clinic.com");
   const [password, setPassword] = useState("Doctor@12345");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.setupStatus()
+      .then((status) => {
+        if (status.needs_setup) router.replace("/setup");
+      })
+      .catch(() => undefined);
+  }, [router]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setError("");
     try {
-      await login(email, password, loginAs);
+      await login(identifier, password, loginAs);
       router.replace("/dashboard");
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : "Unable to sign in");
@@ -59,13 +67,13 @@ export default function LoginPage() {
             </div>
           </fieldset>
           <label className="block">
-            <span className="text-sm font-semibold text-clinic-ink">Email</span>
+            <span className="text-sm font-semibold text-clinic-ink">Username</span>
             <input
-              type="email"
-              autoComplete="email"
+              type="text"
+              autoComplete="username"
               required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              value={identifier}
+              onChange={(event) => setIdentifier(event.target.value)}
               className="mt-2 min-h-12 w-full rounded border border-clinic-line px-3 text-base"
             />
           </label>

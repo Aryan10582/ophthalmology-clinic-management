@@ -17,7 +17,11 @@ def read_current_user(current_user: User = Depends(require_roles(UserRole.ADMIN,
 
 @router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(admin_required)], summary="Create user")
 def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> User:
-    if user_crud.get_by_email(db, email=payload.email):
+    if payload.role == UserRole.DOCTOR and db.query(User.id).filter(User.role == UserRole.DOCTOR).first() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A doctor account already exists")
+    if payload.username and user_crud.get_by_username(db, username=payload.username):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already registered")
+    if payload.email and user_crud.get_by_email(db, email=payload.email):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
     return user_crud.create(db, obj_in=payload)
 
@@ -40,6 +44,12 @@ def update_user(user_id: int, payload: UserUpdate, db: Session = Depends(get_db)
     user = user_crud.get(db, id=user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if payload.role == UserRole.DOCTOR and user.role != UserRole.DOCTOR and db.query(User.id).filter(User.role == UserRole.DOCTOR).first() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A doctor account already exists")
+    if payload.username:
+        existing_username = user_crud.get_by_username(db, username=payload.username)
+        if existing_username and existing_username.id != user.id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already registered")
     if payload.email and user_crud.get_by_email(db, email=payload.email) and payload.email.lower() != user.email:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
     return user_crud.update(db, db_obj=user, obj_in=payload)

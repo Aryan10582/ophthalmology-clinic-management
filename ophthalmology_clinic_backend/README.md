@@ -48,6 +48,28 @@ Open:
 - API docs: http://localhost:8000/docs
 - Health check: http://localhost:8000/api/v1/health
 
+## Database Configuration
+
+The application supports both local PostgreSQL settings and cloud-hosted database URLs. `DATABASE_URL` is checked first. If it is set, the API and Alembic use it directly. If it is empty or missing, the app builds the SQLAlchemy connection string from the `POSTGRES_*` variables.
+
+Local development:
+
+```env
+POSTGRES_SERVER=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your-local-password
+POSTGRES_DB=ophthalmology_clinic
+```
+
+Production:
+
+```env
+DATABASE_URL=postgresql+psycopg://user:password@host:5432/ophthalmology_clinic
+```
+
+Migration commands do not change. `alembic upgrade head` automatically migrates whichever database is currently configured.
+
 ## Database Migrations
 
 Create the first migration:

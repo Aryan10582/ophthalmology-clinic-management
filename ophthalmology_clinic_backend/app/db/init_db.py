@@ -31,6 +31,7 @@ from app.schemas.queue import QueueEntryCreate
 from app.schemas.supply import MedicalSupplyCreate
 from app.schemas.user import UserCreate
 from app.schemas.visit import VisitCreate
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ DUMMY_PATIENTS = [
 ]
 
 
-def seed_default_admin(db: Session) -> User | None:
+def seed_default_admin(db: Session, *, is_demo_account: bool = False) -> User | None:
     existing_admin = user_crud.get_by_email(db, email=DEFAULT_ADMIN_EMAIL)
     if existing_admin is not None:
         logger.info("Default admin seed skipped; admin account already exists.")
@@ -144,6 +145,7 @@ def seed_default_admin(db: Session) -> User | None:
         password=DEFAULT_ADMIN_PASSWORD,
         role=UserRole.ADMIN,
         is_active=True,
+        is_demo_account=is_demo_account,
     )
     try:
         admin = user_crud.create(db, obj_in=admin_in)
@@ -157,7 +159,13 @@ def seed_default_admin(db: Session) -> User | None:
 
 
 def init_db(db: Session) -> None:
-    seed_default_admin(db)
+    if not settings.SEED_DEMO_DATA:
+        logger.info("Demo data seed skipped; SEED_DEMO_DATA is disabled.")
+        return
+    if real_doctor_exists(db):
+        logger.info("Demo data seed skipped; real clinic doctor account already exists.")
+        return
+    seed_default_admin(db, is_demo_account=True)
     seed_dummy_doctors(db)
     seed_dummy_receptionists(db)
     seed_dummy_patients(db)
@@ -168,6 +176,18 @@ def init_db(db: Session) -> None:
     seed_consultations(db)
     seed_operations_and_followups(db)
     seed_historical_analytics_data(db)
+
+
+def real_doctor_exists(db: Session) -> bool:
+    return (
+        db.query(User.id)
+        .filter(
+            User.role == UserRole.DOCTOR,
+            User.is_demo_account.is_(False),
+        )
+        .first()
+        is not None
+    )
 
 
 def seed_dummy_doctors(db: Session) -> None:
@@ -182,6 +202,7 @@ def seed_dummy_doctors(db: Session) -> None:
                 password=DEFAULT_DOCTOR_PASSWORD,
                 role=UserRole.DOCTOR,
                 is_active=True,
+                is_demo_account=True,
             ),
         )
         logger.info("Seeded doctor account: %s", doctor["email"])
@@ -199,6 +220,7 @@ def seed_dummy_receptionists(db: Session) -> None:
                 password=DEFAULT_RECEPTIONIST_PASSWORD,
                 role=UserRole.RECEPTIONIST,
                 is_active=True,
+                is_demo_account=True,
             ),
         )
         logger.info("Seeded receptionist account: %s", receptionist["email"])

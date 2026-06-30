@@ -39,17 +39,7 @@ def login(
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED, summary="Register a receptionist account")
 def register(payload: PublicRegister, db: Session = Depends(get_db)) -> UserRead:
-    if user_crud.get_by_email(db, email=payload.email):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
-
-    user_in = UserCreate(
-        full_name=payload.full_name,
-        email=payload.email,
-        password=payload.password,
-        role=UserRole.RECEPTIONIST,
-        is_active=True,
-    )
-    return user_crud.create(db, obj_in=user_in)
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Public registration is disabled. Receptionists must be managed by the doctor.")
 
 
 @router.post("/refresh", response_model=Token, summary="Refresh access token")

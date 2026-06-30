@@ -1,4 +1,4 @@
-from pydantic import AnyHttpUrl, Field, field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     BACKEND_CORS_ORIGINS: list[str] = []
     LOG_LEVEL: str = "INFO"
+    SEED_DEMO_DATA: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=True)
 
@@ -35,8 +36,9 @@ class Settings(BaseSettings):
 
     @property
     def sqlalchemy_database_uri(self) -> str:
-        if self.DATABASE_URL:
-            return self.DATABASE_URL
+        database_url = self.DATABASE_URL.strip() if self.DATABASE_URL else ""
+        if database_url:
+            return database_url
         return (
             f"postgresql+psycopg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
             f"@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"

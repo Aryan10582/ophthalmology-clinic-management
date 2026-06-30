@@ -1,6 +1,8 @@
 import type {
   AnalyticsSummary,
   CalendarEvent,
+  ClinicSetupPayload,
+  ClinicSetupResult,
   Expense,
   ExpensePayload,
   MedicalSupply,
@@ -18,8 +20,11 @@ import type {
   Patient,
   QueueEntry,
   QueueEntryPayload,
+  ReceptionistPayload,
+  ReceptionistUpdatePayload,
   PrescriptionTemplate,
   RealtimeEvent,
+  SetupStatus,
   Suggestion,
   SuggestionFieldName,
   TodayIncome,
@@ -105,9 +110,9 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function login(email: string, password: string, loginAs?: UserRole) {
+export async function login(identifier: string, password: string, loginAs?: UserRole) {
   const body = new URLSearchParams();
-  body.set("username", email);
+  body.set("username", identifier);
   body.set("password", password);
   if (loginAs) body.set("login_as", loginAs);
 
@@ -134,6 +139,27 @@ export async function login(email: string, password: string, loginAs?: UserRole)
 }
 
 export const api = {
+  setupStatus: () => apiFetch<SetupStatus>("/setup/status"),
+  completeSetup: (payload: ClinicSetupPayload) =>
+    apiFetch<ClinicSetupResult>("/setup", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  receptionists: () => apiFetch<User[]>("/setup/receptionists"),
+  createReceptionist: (payload: ReceptionistPayload) =>
+    apiFetch<User>("/setup/receptionists", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  updateReceptionist: (id: number, payload: ReceptionistUpdatePayload) =>
+    apiFetch<User>(`/setup/receptionists/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    }),
+  deleteReceptionist: (id: number) =>
+    apiFetch<User>(`/setup/receptionists/${id}`, {
+      method: "DELETE"
+    }),
   me: () => apiFetch<User>("/users/me"),
   users: () => apiFetch<User[]>("/users"),
   patients: () => apiFetch<Patient[]>("/patients"),

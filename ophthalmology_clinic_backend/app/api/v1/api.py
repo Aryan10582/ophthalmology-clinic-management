@@ -1,10 +1,11 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import analytics, auth, calendar, followups, health, operations, patients, payments, queue, realtime, settings, suggestions, supplies, users, visits
+from app.api.v1.endpoints import analytics, auth, calendar, followups, health, operations, patients, payments, queue, realtime, settings, setup, suggestions, supplies, users, visits
 
 api_router = APIRouter()
 api_router.include_router(health.router, prefix="/health", tags=["health"])
 api_router.include_router(auth.router, prefix="/auth", tags=["authentication"])
+api_router.include_router(setup.router, prefix="/setup", tags=["setup"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(patients.router, prefix="/patients", tags=["patients"])
 api_router.include_router(visits.router, prefix="/visits", tags=["visits"])

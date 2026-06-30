@@ -3,10 +3,56 @@ export type UserRole = "admin" | "doctor" | "receptionist";
 export type User = {
   id: number;
   full_name: string;
+  username: string;
   email: string;
   role: UserRole;
   is_active: boolean;
+  is_demo_account: boolean;
   created_at?: string;
+};
+
+export type SetupStatus = {
+  needs_setup: boolean;
+};
+
+export type SetupReceptionistPayload = {
+  username: string;
+  password: string;
+  confirm_password: string;
+};
+
+export type ClinicSetupPayload = {
+  doctor: {
+    doctor_name: string;
+    username: string;
+    password: string;
+    confirm_password: string;
+  };
+  clinic: {
+    clinic_name: string;
+    doctor_qualifications: string;
+    doctor_registration_number: string;
+    clinic_address: string;
+    clinic_phone: string;
+    email: string;
+    clinic_timings: string;
+    website?: string | null;
+  };
+  receptionists: SetupReceptionistPayload[];
+};
+
+export type ClinicSetupResult = {
+  doctor_id: number;
+  receptionist_count: number;
+};
+
+export type ReceptionistPayload = SetupReceptionistPayload;
+
+export type ReceptionistUpdatePayload = {
+  username?: string;
+  password?: string;
+  confirm_password?: string;
+  is_active?: boolean;
 };
 
 export type Patient = {
