@@ -33,3 +33,4 @@ Open http://localhost:3000 and log in with a seeded doctor or receptionist accou
 pnpm run typecheck
 pnpm run build
 ```
+
