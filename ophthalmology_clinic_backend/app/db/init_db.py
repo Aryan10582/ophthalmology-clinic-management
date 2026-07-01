@@ -219,12 +219,24 @@ def ensure_demo_clinic(db: Session) -> User | None:
     seed_demo_operation_reports(db)
     seed_demo_prescription_template(db)
     seed_demo_notifications(db)
-    return user_crud.get_by_email(db, email=DUMMY_DOCTORS[0]["email"])
+    return get_demo_doctor(db)
 
 
 def reset_demo_clinic(db: Session) -> User | None:
     clear_demo_seed_data(db)
     return ensure_demo_clinic(db)
+
+
+def get_demo_doctor(db: Session) -> User | None:
+    return (
+        db.query(User)
+        .filter(
+            User.email == DUMMY_DOCTORS[0]["email"].lower(),
+            User.role == UserRole.DOCTOR,
+            User.is_demo_account.is_(True),
+        )
+        .first()
+    )
 
 
 def demo_seed_needs_refresh(db: Session) -> bool:

@@ -3,12 +3,13 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_active_user, get_db
 from app.core.config import settings
 from app.core.security import ALGORITHM, create_access_token, create_refresh_token
-from app.db.init_db import reset_demo_clinic
+from app.db.init_db import ensure_demo_clinic, get_demo_doctor, reset_demo_clinic
 from app.crud.users import user_crud
 from app.models.user import User, UserRole
 from app.schemas.token import Token, TokenPayload, TokenRefreshRequest
@@ -45,7 +46,14 @@ def login(
 
 @router.post("/demo", response_model=Token, summary="Enter demo clinic without credentials")
 def demo_login(db: Session = Depends(get_db)) -> Token:
-    demo_doctor = reset_demo_clinic(db)
+    demo_doctor = get_demo_doctor(db)
+    if demo_doctor is None:
+        try:
+            demo_doctor = ensure_demo_clinic(db)
+        except IntegrityError:
+            db.rollback()
+            demo_doctor = get_demo_doctor(db)
+
     if demo_doctor is None or demo_doctor.role != UserRole.DOCTOR:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Demo clinic is not available")
 
